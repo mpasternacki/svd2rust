@@ -1,11 +1,11 @@
+use crate::svd::Device;
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::ToTokens;
-use proc_macro2::{TokenStream, Ident, Span};
 use std::fs::File;
 use std::io::Write;
-use crate::svd::Device;
 
 use crate::errors::*;
-use crate::util::{self, ToSanitizedUpperCase};
+use crate::util::{self, ToSanitizedSnakeCase, ToSanitizedUpperCase};
 use crate::Target;
 
 use crate::generate::{interrupt, peripheral};
@@ -16,6 +16,7 @@ pub fn render(
     target: Target,
     nightly: bool,
     generic_mod: bool,
+    feature_per_peripheral: bool,
     device_x: &mut String,
 ) -> Result<Vec<TokenStream>> {
     let mut out = vec![];
@@ -104,8 +105,7 @@ pub fn render(
 
     let core_peripherals: &[_] = if fpu_present {
         &[
-            "CBP", "CPUID", "DCB", "DWT", "FPB", "FPU", "ITM", "MPU", "NVIC", "SCB", "SYST",
-            "TPIU",
+            "CBP", "CPUID", "DCB", "DWT", "FPB", "FPU", "ITM", "MPU", "NVIC", "SCB", "SYST", "TPIU",
         ]
     } else {
         &[
@@ -155,13 +155,20 @@ pub fn render(
         });
     }
 
+    let mut features = vec!["[features]".into()];
     for p in &d.peripherals {
         if target == Target::CortexM && core_peripherals.contains(&&*p.name.to_uppercase()) {
             // Core peripherals are handled above
             continue;
         }
 
-        out.extend(peripheral::render(p, &d.peripherals, &d.defaults, nightly)?);
+        out.extend(peripheral::render(
+            p,
+            &d.peripherals,
+            &d.defaults,
+            nightly,
+            feature_per_peripheral,
+        )?);
 
         if p.registers
             .as_ref()
@@ -175,13 +182,36 @@ pub fn render(
             continue;
         }
 
-        let p = p.name.to_sanitized_upper_case();
-        let id = Ident::new(&p, Span::call_site());
-        fields.push(quote! {
-            #[doc = #p]
+        let pn = p.name.to_sanitized_upper_case();
+        let id = Ident::new(&pn, Span::call_site());
+        let field = quote! {
+            #[doc = #pn]
             pub #id: #id
-        });
-        exprs.push(quote!(#id: #id { _marker: PhantomData }));
+        };
+        let expr = quote!(#id: #id { _marker: PhantomData });
+        if feature_per_peripheral {
+            let f = p.name.to_sanitized_snake_case();
+            features.push(format!("{} = []", f));
+            fields.push(quote! {
+                #[cfg(feature = #f)]
+                #field
+            });
+            exprs.push(quote! {
+                #[cfg(feature = #f)]
+                #expr
+            });
+        } else {
+            fields.push(field);
+            exprs.push(expr);
+        }
+    }
+    if feature_per_peripheral {
+        writeln!(
+            File::create("Cargo-features.toml").unwrap(),
+            "{}",
+            features.join("\n")
+        )
+        .unwrap();
     }
 
     let span = Span::call_site();

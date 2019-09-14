@@ -474,7 +474,7 @@ pub fn generate(xml: &str, target: Target, nightly: bool) -> Result<Generation> 
 
     let device = svd::parse(xml).unwrap(); //TODO(AJM)
     let mut device_x = String::new();
-    let items = generate::device::render(&device, target, nightly, false, &mut device_x)
+    let items = generate::device::render(&device, target, nightly, false, false, &mut device_x) // TODO: feature-per-crate is hardcoded here
         .or(Err(SvdError::Render))?;
 
     let mut lib_rs = String::new();

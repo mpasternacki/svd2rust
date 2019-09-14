@@ -62,6 +62,11 @@ fn run() -> Result<()> {
                 .takes_value(true)
                 .possible_values(&["off", "error", "warn", "info", "debug", "trace"]),
         )
+        .arg(
+            Arg::with_name("feature_per_peripheral")
+                .long("feature-per-peripheral")
+                .help("Make every peripheral depend on a feature"),
+        )
         .version(concat!(
             env!("CARGO_PKG_VERSION"),
             include_str!(concat!(env!("OUT_DIR"), "/commit-info.txt"))
@@ -98,8 +103,17 @@ fn run() -> Result<()> {
 
     let generic_mod = matches.is_present("generic_mod");
 
+    let feature_per_peripheral = matches.is_present("feature_per_peripheral");
+
     let mut device_x = String::new();
-    let items = generate::device::render(&device, target, nightly, generic_mod, &mut device_x)?;
+    let items = generate::device::render(
+        &device,
+        target,
+        nightly,
+        generic_mod,
+        feature_per_peripheral,
+        &mut device_x,
+    )?;
     let mut file = File::create("lib.rs").expect("Couldn't create lib.rs file");
 
     for item in items {
